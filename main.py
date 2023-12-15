@@ -34,11 +34,13 @@ img = Image.new('RGB', (WIDTH, HEIGHT), color=(0, 0, 0))
 draw = ImageDraw.Draw(img)
 draw.rectangle((0, 0, WIDTH, HEIGHT), outline=0, fill=0)
 
-draw.text((2, 2), "Raspberry Pi Stats", font=font, fill="#FFFFFF")
-draw.text((2, 20), "Starting...", font=font, fill="#FFFFFF")
-
 font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
 font_big = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+
+draw.text((2, 2), "Raspberry Pi Stats", font=font_big, fill="#FFFFFF")
+draw.text((2, 30), "Starting...", font=font_big, fill="#FFFFFF")
+
+lcd.display(img)
 
 padding = -2
 top = padding
@@ -57,10 +59,10 @@ def on_message(client, userdata, msg):
   if 'motion' in msg.topic:
     if str(msg.payload.decode("utf-8")) == '1':
     # lcd.set_backlight(True)
-    client.publish(hostname + "/oled", "1")
+      client.publish(hostname + "/oled", "1")
     if str(msg.payload.decode("utf-8")) == '0':
     # lcd.set_backlight(False)
-    client.publish(hostname + "/oled", "1")
+      client.publish(hostname + "/oled", "1")
 
 client = mqtt.Client(socket.gethostname())
 
@@ -140,6 +142,8 @@ def get_data():
   mem_info = get_info("mem.mem",'perfdata.USED')
   procs_info = get_info("procs.procs",'perfdata.procs')
 
+  print("Data fetched")
+
   time.sleep(3600)
 
 def update_data():
@@ -184,15 +188,15 @@ def update_data():
 def main():
   x = 0
 
-  thread_update = threading.Thread(target=get_data)
-  thread.start()
+  thread_get = threading.Thread(target=get_data, daemon=True)
+  thread_get.start()
 
-  thread_get = threading.Thread(target=update_data)
-  thread.start()
-
-  time.sleep(5)
+  thread_update = threading.Thread(target=update_data)
+  thread_update.start()
 
   client.loop_start()
+
+  time.sleep(10)
 
   t_start = time.time()
 
@@ -262,7 +266,9 @@ def main():
     x2 = (time.time() - t_start) * 100
     x2 %= (size_x + WIDTH)
     draw.text((int(text_x - x2), y), Dmesg, font=font, fill=(255, 255, 255))
+
     lcd.display(img)
+
     time.sleep(0.5)
 
 if __name__ == "__main__":
