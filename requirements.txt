@@ -1,0 +1,9 @@
+hurry.filesize
+paho
+
+
+python3-hurry.filesize
+python3-paho-mqtt
+python3-pil
+python3-psutil
+luma lcd

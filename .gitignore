@@ -1,2 +1,4 @@
 private.py
 __pycache__
+.gitignore
+.trunk
