@@ -5,8 +5,8 @@ import sys
 import time
 import threading
 import subprocess
-import psutil
 import socket
+import psutil
 from hurry.filesize import size
 import paho.mqtt.client as mqtt
 from PIL import Image, ImageDraw, ImageFont
@@ -42,9 +42,9 @@ draw.text((2, 30), "Starting...", font=font_big, fill="#FFFFFF")
 
 lcd.display(img)
 
-padding = -2
-top = padding
-bottom = HEIGHT - padding
+PADDING = -2
+TOP = PADDING
+bottom = HEIGHT - PADDING
 
 global x
 x = 0
@@ -64,25 +64,31 @@ def on_message(client, userdata, msg):
     # lcd.set_backlight(False)
       client.publish(hostname + "/oled", "1")
 
+
 client = mqtt.Client(socket.gethostname())
 
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect("mosquitto.docker.local")
+client.connect("mqtt.rpisrv.it")
 
 def signal_term_handler(signal, frame):
     sys.exit(0)
 
+
 signal.signal(signal.SIGTERM, signal_term_handler)
 
+
 def set_color(value, warn, crit):
-    if value >= crit:
+    if warn or crit is None:
+        return "#FFFFFF"
+    elif value >= crit:
         return "#FF0000"
     elif value >= warn:
         return "#FFFF00"
     else:
         return "#00FF00"
+
 
 def first(iterable, default=None):
     if iterable:
@@ -90,17 +96,24 @@ def first(iterable, default=None):
             return item
     return default
 
+
 def intersect(a, b):
     return list(set(a) & set(b))
 
+
 def get_value(metric_name, metric_value, metric_path):
-    request_url = graphite_url + "render/?" + "target=summarize(" + metric_group + "." + \
-                  hostname + ".services." + metric_name + "." + metric_path + "." + metric_value + ",'1hour','last')&from=-1h&format=json"
-    r = requests.get(request_url)
+    try:
+        graphite_url
+    except:
+        return ""
+    else:
+      request_url = graphite_url + "render/?" + "target=summarize(" + metric_group + "." + \
+                    hostname + ".services." + metric_name + "." + metric_path + "." + metric_value + ",'1hour','last')&from=-1h&format=json"
+      r = requests.get(request_url)
     try:
         result = r.json()[0][u'datapoints'][-1][0]
         return result
-    except:
+    except Exception as e:
         return ""
 
 def get_info(service, path):
@@ -112,39 +125,50 @@ def get_info(service, path):
     }
     return info
 
+
 def get_data():
 
-  global  hostname, \
-          ip, \
-          net_speed, \
-          cpu_freq_max, \
-          load_info, \
-          temp_info, \
-          disk_info, \
-          mem_info, \
-          procs_info
+    global hostname, \
+              ip, \
+              net_speed, \
+              cpu_freq_max, \
+              load_info, \
+              temp_info, \
+              disk_info, \
+              mem_info, \
+              procs_info
 
-  # hostname = socket.gethostname()
-  hostname = "rpi-node1"
+    hostname = socket.gethostname()
+    # hostname = "rpi-node1"
 
-  try:
-    net_speed = psutil.net_if_stats()["br0"].speed
-    ip = psutil.net_if_addrs()["br0"][0].address
-  except:
-    net_speed = psutil.net_if_stats()["wlan0"].speed
-    ip = psutil.net_if_addrs()["wlan0"][0].address
+    try:
+      net_speed = psutil.net_if_stats()["br0"].speed
+      ip = psutil.net_if_addrs()["br0"][0].address
+    except:
+      net_speed = psutil.net_if_stats()["wlan0"].speed
+      ip = psutil.net_if_addrs()["wlan0"][0].address
 
-  cpu_freq_max = cpu_clock = psutil.cpu_freq().max
+    cpu_freq_max = cpu_clock = psutil.cpu_freq().max
 
-  load_info = get_info("load.load",'perfdata.load5')
-  temp_info = get_info("temperature.check_rpi_temp_py",'perfdata.rpi_temp')
-  disk_info = get_info("disk.disk",'perfdata._')
-  mem_info = get_info("mem.mem",'perfdata.USED')
-  procs_info = get_info("procs.procs",'perfdata.procs')
+    try:
+      graphite_url
+    except:
+      load_info = {"load_warn": None, "load_crit": None}
+      temp_info = {"temperature_warn": None, "temperature_crit": None}
+      disk_info = {"disk_warn": None, "disk_crit": None}
+      mem_info = {"mem_warn": None, "mem_crit": None}
+      procs_info = {"procs_warn": None, "procs_crit": None}
+      print("Graphite URL not defined")
+    else:
+      load_info = get_info("load.load",'perfdata.load5')
+      temp_info = get_info("temperature.check_rpi_temp_py",'perfdata.rpi_temp')
+      disk_info = get_info("disk.disk",'perfdata._')
+      mem_info = get_info("mem.mem",'perfdata.USED')
+      procs_info = get_info("procs.procs",'perfdata.procs')
+      print("Data fetched")
 
-  print("Data fetched")
+    time.sleep(3600)
 
-  time.sleep(3600)
 
 def update_data():
   while True:
@@ -161,6 +185,7 @@ def update_data():
     mem = psutil.virtual_memory()
     mem_used = (mem.total - mem.available)
     df = psutil.disk_usage("/").used
+    df_max = psutil.disk_usage("/").total
 
     # network_ifs = psutil.net_if_stats().keys()
     # wlan0 = first(intersect(network_ifs, ["wlan0", "wl0"]), "wlan0")
@@ -173,14 +198,15 @@ def update_data():
     procs = len([key for key in psutil.process_iter()])
 
     global data
-    data = { 'cpu_used': cpu_used, \
+    data = {'cpu_used': cpu_used,
             'cpu_clock': cpu_clock,
             'cpu_temp': cpu_temp,
             'mem_total': mem.total,
             'mem_used': mem_used,
             'df': df,
+            'df_max': df_max,
             'net_data': net_data,
-            'procs': procs }
+            'procs': procs}
 
     time.sleep(2)
 
@@ -204,7 +230,7 @@ def main():
 
     draw.rectangle((0, 0, WIDTH, HEIGHT), outline=0, fill=0)
 
-    y = top
+    y = TOP
 
     Hostname = str(hostname)
     state_color = "#FFFFFF"
@@ -240,7 +266,7 @@ def main():
     draw.text((x, y), Mem, font=font, fill=state_color)
     y += font.getbbox(Mem)[3]
 
-    Disk = "Disk: " + str(size(data['df'])) + "/" + str(size(disk_info['disk_max']))
+    Disk = "Disk: " + str(size(data['df'])) + "/" + str(size(data['df_max']))
     state_color = set_color(data['df'], disk_info['disk_warn'], disk_info['disk_crit'])
     draw.text((x, y), Disk, font=font, fill=state_color)
     y += font.getbbox(Disk)[3]
@@ -275,4 +301,6 @@ if __name__ == "__main__":
   try:
     main()
   except KeyboardInterrupt:
+    draw.rectangle((0, 0, WIDTH, HEIGHT), outline=0, fill=0)
+    lcd.display(img)
     pass
