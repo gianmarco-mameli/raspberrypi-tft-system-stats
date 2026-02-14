@@ -268,7 +268,7 @@ def get_data():
         stats = net_if_stats.get(iface)
         addrs = net_if_addrs.get(iface)
         if stats and stats.isup and addrs:
-            net_speed = get_iface_speed(iface)/1000/1000
+            net_speed = get_iface_speed(iface)*1000*1000
             ip = next(
                 (
                     addr.address
