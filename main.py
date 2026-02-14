@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
 
-import warnings
-warnings.filterwarnings("ignore")
-
 import os
+import random
 import signal
 import socket
 import sys
 import threading
 import time
+import warnings
+
+# import luma.core.render
 import paho.mqtt.client as mqtt
 import psutil
-import random
-from influxdb_client import InfluxDBClient
 from hurry.filesize import size
-import luma.core.render
+from influxdb_client import InfluxDBClient
 from luma.core.interface.serial import spi
-from luma.lcd.device import st7789
 from luma.core.sprite_system import framerate_regulator
+from luma.lcd.device import st7789
 from PIL import Image, ImageDraw, ImageFont
+
+warnings.filterwarnings("ignore")
 
 # environment variables
 mqtt_server = os.getenv("MQTT_SERVER")
@@ -29,14 +30,15 @@ influxdb_org = os.getenv("INFLUXDB_ORG")
 influxdb_bucket = os.getenv("INFLUXDB_BUCKET")
 influxdb_token = os.getenv("INFLUXDB_TOKEN")
 
-# import RPi.GPIO as GPIO
-
-# # Set up GPIO22 as output
-# GPIO.setmode(GPIO.BCM)
-# GPIO.setup(17, GPIO.OUT)
-# GPIO.setup(22, GPIO.OUT)
-
-serial = spi(spi_mode=3, port=0, device=0, gpio_LIGHT=27, gpio_DC=17, gpio_RST=22, bus_speed_hz=8000000)
+serial = spi(
+    spi_mode=3,
+    port=0,
+    device=0,
+    gpio_LIGHT=27,
+    gpio_DC=17,
+    gpio_RST=22,
+    bus_speed_hz=8000000,
+)
 lcd = st7789(serial, rotate=lcd_rotation)
 width = lcd.width
 height = lcd.height
@@ -59,11 +61,23 @@ boot_text_2 = "Starting..."
 print(boot_text_1)
 print(boot_text_2)
 w = draw.textlength(text=boot_text_1, font=font_big)
-draw.text((int((width-w)/2),2), text=boot_text_1, font=font_big, fill=default_color)
+draw.text(
+    (
+        int((width - w) / 2), 2
+    ),
+    text=boot_text_1,
+    font=font_big,
+    fill=default_color
+)
 w = draw.textlength(text=boot_text_2, font=font_big)
-draw.text((int((width-w)/2),30), text=boot_text_2, font=font_big, fill=default_color)
+draw.text(
+    (int((width - w) / 2), 30),
+    text=boot_text_2,
+    font=font_big,
+    fill=default_color
+)
 w = int(logo.width)
-img.paste(logo, (int((width-w)/2),90))
+img.paste(logo, (int((width - w) / 2), 90))
 lcd.display(img)
 
 padding = -3
@@ -76,13 +90,21 @@ show_stats = True
 
 influxdbc = None
 if influxdb_url and influxdb_token and influxdb_org and influxdb_bucket:
-    influxdbc = InfluxDBClient(url=influxdb_url, token=influxdb_token, org=influxdb_org)
+    influxdbc = InfluxDBClient(
+        url=influxdb_url,
+        token=influxdb_token,
+        org=influxdb_org
+    )
     query_api = influxdbc.query_api()
     try:
         health = influxdbc.health()
-        print(f"InfluxDB2 connection status: {health.status} - {health.message}")
+        print(
+            f"InfluxDB2 connection status: {health.status} - "
+            f"{health.message}"
+        )
     except Exception as e:
         print(f"InfluxDB2 connection error: {e}")
+
 
 class screensaver(object):
     def __init__(self, w, h, image):
@@ -92,15 +114,17 @@ class screensaver(object):
         self._image = image
         self._imgWidth = image.width
         self._imgHeight = image.height
-        self._x_speed = 1 #(random.random() - 0.5) * 10
-        self._y_speed = 1 #(random.random() - 0.5) * 10
+        self._x_speed = 1  # (random.random() - 0.5) * 10
+        self._y_speed = 1  # (random.random() - 0.5) * 10
+        # trunk-ignore(bandit/B311)
         self._x_pos = random.random() * self._w / 2.0
+        # trunk-ignore(bandit/B311)
         self._y_pos = random.random() * self._h / 2.0
 
     def update_pos(self):
         if self._x_pos + self._imgWidth > self._w:
             self._x_speed = -abs(self._x_speed)
-        elif self._x_pos  < 0.0:
+        elif self._x_pos < 0.0:
             self._x_speed = abs(self._x_speed)
 
         if self._y_pos + self._imgHeight > self._h:
@@ -112,7 +136,8 @@ class screensaver(object):
         self._y_pos += self._y_speed
 
     def draw(self):
-        imgss.paste(self._image, (int(self._x_pos),int(self._y_pos)))
+        imgss.paste(self._image, (int(self._x_pos), int(self._y_pos)))
+
 
 class SignalHandler:
     shutdown_requested = False
@@ -123,7 +148,7 @@ class SignalHandler:
 
     def request_shutdown(self, signum, frame):
         if not self.shutdown_requested:
-            print('Request to shutdown received, stopping')
+            print("Request to shutdown received, stopping")
             self.shutdown_requested = True
             try:
                 lcd.clear()
@@ -138,11 +163,17 @@ class SignalHandler:
     def can_run(self):
         return not self.shutdown_requested
 
+
 def on_connect(mqttc, userdata, flags, rc):
     print(f"MQTT Connected with result code {rc}")
     mqttc.subscribe(motion_topic)
 
-def on_message(mqttc, userdata, msg,):
+
+def on_message(
+    mqttc,
+    userdata,
+    msg,
+):
     global show_stats
     # if "motion" in msg.topic:
     if str(msg.payload.decode("utf-8")) == "1":
@@ -153,8 +184,9 @@ def on_message(mqttc, userdata, msg,):
         mqttc.publish(hostname + "/stats_display", "0")
     # print(f"Show stats: {show_stats}")
 
+
 def set_color(value, warn, crit):
-    if warn != None and crit != None:
+    if warn is not None and crit is not None:
         if value >= crit:
             return "#bd0940"
         elif value >= warn:
@@ -164,24 +196,27 @@ def set_color(value, warn, crit):
     else:
         return default_color
 
+
 def first(iterable, default=None):
     if iterable:
         for item in iterable:
             return item
     return default
 
+
 def intersect(a, b):
     return list(set(a) & set(b))
 
+
 def get_value(metric_name, metric_value, metric_path):
     if influxdbc:
-        flux_query = f'''from(bucket: "{influxdb_bucket}")
+        flux_query = f"""from(bucket: "{influxdb_bucket}")
             |> range(start: -1h)
             |> filter(fn: (r) => r["_measurement"] == "{metric_name}")
             |> filter(fn: (r) => r["_field"] == "{metric_value}")
             |> filter(fn: (r) => r["hostname"] =~ /{hostname}/)
             |> filter(fn: (r) => r["metric"] == "{metric_path}")
-            |> yield(name: "last")'''
+            |> yield(name: "last")"""
         try:
             tables = query_api.query(flux_query)
             for table in tables:
@@ -192,6 +227,7 @@ def get_value(metric_name, metric_value, metric_path):
             return None
     return None
 
+
 def get_info(service, path):
     service_name = service.split(".")[0]
     info = {
@@ -201,10 +237,16 @@ def get_info(service, path):
     }
     return info
 
+
 def get_iface_speed(iface):
     try:
         import subprocess
-        result = subprocess.run(["ethtool", iface], capture_output=True, text=True)
+
+        result = subprocess.run(
+            ["ethtool", iface],
+            capture_output=True,
+            text=True
+        )
         for line in result.stdout.splitlines():
             if "Speed:" in line:
                 speed_str = line.split("Speed:")[1].strip()
@@ -214,21 +256,24 @@ def get_iface_speed(iface):
     except Exception:
         return 0
 
+
 def get_data():
-    global hostname, ip, net_speed, cpu_freq_max, load_info, temp_info, disk_info, mem_info, procs_info
+    global hostname
+    global ip, net_speed
+    global cpu_freq_max, load_info
+    global temp_info, disk_info
+    global mem_info, procs_info
 
     # hostname = socket.gethostname()
     hostname = "rpitools"
- 
+
     net_if_stats = psutil.net_if_stats()
     net_if_addrs = psutil.net_if_addrs()
-    active_iface = None
     net_speed = 0
     ip = ""
 
     for iface in ["eth0", "wlan0"]:
         if iface in net_if_stats and net_if_stats[iface].isup:
-            active_iface = iface
             net_speed = get_iface_speed(iface)
             # Get IPv4 address
             for addr in net_if_addrs[iface]:
@@ -237,7 +282,7 @@ def get_data():
                     break
             break
 
-    cpu_freq_max = cpu_clock = psutil.cpu_freq().max
+    cpu_freq_max = psutil.cpu_freq().max
 
     load_info = get_info("load", "load1")
     temp_info = get_info("check_rpi", "cputemp")
@@ -245,12 +290,13 @@ def get_data():
     mem_info = get_info("mem", "USED")
     procs_info = get_info("procs", "procs")
 
-    if influxdb_url != None:
+    if influxdb_url is not None:
         print("Using InfluxDB data")
 
     print("New data fetched")
 
     time.sleep(3600)
+
 
 def update_data():
     while True:
@@ -276,7 +322,8 @@ def update_data():
         # eth0 = first(intersect(network_ifs, ["eth0", "en0"]), "eth0")
 
         new_net_value = (
-            psutil.net_io_counters().bytes_sent + psutil.net_io_counters().bytes_recv
+            psutil.net_io_counters().bytes_sent
+            + psutil.net_io_counters().bytes_recv
         )
         net_data = new_net_value - old_net_value
         old_net_value = new_net_value
@@ -298,6 +345,7 @@ def update_data():
 
         time.sleep(2)
 
+
 def main(num_iterations=sys.maxsize):
 
     # x = 0
@@ -314,13 +362,16 @@ def main(num_iterations=sys.maxsize):
 
     time.sleep(10)
 
-    if mqtt_server != None:
-        mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, socket.gethostname() + "_stats_display")
+    if mqtt_server is not None:
+        mqttc = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION1,
+            socket.gethostname() + "_stats_display"
+        )
         mqttc.on_connect = on_connect
         mqttc.on_message = on_message
         mqttc.connect(mqtt_server)
         mqttc.loop_start()
-        
+
     global t_start
     t_start = time.time()
 
@@ -328,13 +379,22 @@ def main(num_iterations=sys.maxsize):
 
     while signal_handler.can_run():
         while show_stats and signal_handler.can_run():
-            draw.rectangle((0, 0, width, height), outline=outline_color, fill=fill_color)
+            draw.rectangle(
+                (0, 0, width, height),
+                outline=outline_color,
+                fill=fill_color
+            )
 
             y = top
 
             Hostname = str(hostname)
             state_color = default_color
-            draw.text((x, y), Hostname.upper(), font=font_big, fill=alternate_color)
+            draw.text(
+                (x, y),
+                Hostname.upper(),
+                font=font_big,
+                fill=alternate_color
+            )
             y += font.getbbox(Hostname)[3]
             y += 6
 
@@ -349,13 +409,17 @@ def main(num_iterations=sys.maxsize):
 
             Load = "Cpu Load: " + str(data["cpu_used"])
             state_color = set_color(
-                data["cpu_used"], load_info["load_warn"], load_info["load_crit"]
+                data["cpu_used"],
+                load_info["load_warn"],
+                load_info["load_crit"]
             )
             draw.text((x, y), Load, font=font, fill=state_color)
             y += font.getbbox(Load)[3]
 
             Clock = "Cpu Clock: " + str(data["cpu_clock"])
-            state_color = set_color(data["cpu_clock"], (cpu_freq_max * 0.80), cpu_freq_max)
+            state_color = set_color(
+                data["cpu_clock"], (cpu_freq_max * 0.80), cpu_freq_max
+            )
             draw.text((x, y), Clock, font=font, fill=state_color)
             y += font.getbbox(Clock)[3]
 
@@ -368,51 +432,67 @@ def main(num_iterations=sys.maxsize):
             draw.text((x, y), Temp, font=font, fill=state_color)
             y += font.getbbox(Temp)[3]
 
-            Mem = "Mem: " + str(size(data["mem_used"])) + "/" + str(size(data["mem_total"]))
+            Mem = (
+                "Mem: "
+                + str(size(data["mem_used"]))
+                + "/"
+                + str(size(data["mem_total"]))
+            )
             state_color = set_color(
                 data["mem_used"], mem_info["mem_warn"], mem_info["mem_crit"]
             )
             draw.text((x, y), Mem, font=font, fill=state_color)
             y += font.getbbox(Mem)[3]
 
-            Disk = "Disk: " + str(size(data["df"])) + "/" + str(size(data["df_total"]))
+            Disk = (
+                "Disk: "
+                + str(size(data["df"]))
+                + "/"
+                + str(size(data["df_total"]))
+            )
             state_color = set_color(
                 data["df"], disk_info["disk_warn"], disk_info["disk_crit"]
             )
             draw.text((x, y), Disk, font=font, fill=state_color)
             y += font.getbbox(Disk)[3]
 
-            Net = "Net: " + str(size(data["net_data"])) + "/" + str(net_speed) + "M"
-            state_color = set_color(data["net_data"] / 1000, (net_speed * 0.80), net_speed)
+            Net = (
+                "Net: "
+                + str(size(data["net_data"]))
+                + "/"
+                + str(net_speed)
+                + "M"
+            )
+            state_color = set_color(
+                data["net_data"] / 1000, (net_speed * 0.80), net_speed
+            )
             draw.text((x, y), Net, font=font, fill=state_color)
             y += font.getbbox(Net)[3]
 
             Procs = "Procs: " + str(data["procs"])
             state_color = set_color(
-                data["procs"], procs_info["procs_warn"], procs_info["procs_crit"]
+                data["procs"],
+                procs_info["procs_warn"],
+                procs_info["procs_crit"]
             )
             draw.text((x, y), Procs, font=font, fill=state_color)
             y += font.getbbox(Procs)[3]
 
-            # y += 8
-            # draw.line([(x, y), (width-padding, y)], default_color, 2)
-            # y += 4
-
-            # cmd = "dmesg --level=err,warn | tail -1"
-            # Dmesg = subprocess.check_output(cmd, shell=True).decode("utf-8")
-            # size_x = font.getbbox(Dmesg)[2]
-            # text_x = lcd.width
-            # x2 = (time.time() - t_start) * 100
-            # x2 %= size_x + width
-            # draw.text((int(text_x - x2), y), Dmesg, font=font, fill=(255, 255, 255))
-            
             lcd.display(img)
             time.sleep(0.5)
-        while not show_stats and num_iterations > 0 and signal_handler.can_run():
+        while (
+            not show_stats
+            and num_iterations > 0
+            and signal_handler.can_run()
+        ):
             with regulator:
                 num_iterations -= 1
                 frame_count += 1
-                drawss.rectangle((0, 0, width, height), outline=outline_color, fill=fill_color)
+                drawss.rectangle(
+                    (0, 0, width, height),
+                    outline=outline_color,
+                    fill=fill_color
+                )
                 for s in ss:
                     s.update_pos()
                     s.draw()
