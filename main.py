@@ -6,7 +6,6 @@ import signal
 import socket
 import sys
 import threading
-import time
 import paho.mqtt.client as mqtt
 import psutil
 from hurry.filesize import size
@@ -42,7 +41,7 @@ default_color = "#FFFFFF"
 alternate_color = "#AA9C23"
 outline_color = "#000000"
 fill_color = "#000000"
-logo = Image.open("raspberrypi.png")
+logo = Image.open("raspberrypi.png").convert("RGB") 
 img = Image.new("RGB", (width, height), color=(0, 0, 0))
 draw = ImageDraw.Draw(img)
 imgss = Image.new("RGB", (width, height), color=(0, 0, 0))
@@ -100,33 +99,36 @@ if influxdb_url and influxdb_token and influxdb_org and influxdb_bucket:
     except Exception as e:
         print(f"InfluxDB2 connection error: {e}")
 
-class screensaver(object):
+class screensaver:
+    __slots__ = (
+        "_w", "_h", "_image", "_imgWidth", "_imgHeight",
+        "_x_speed", "_y_speed", "_x_pos", "_y_pos"
+    )
+
     def __init__(self, w, h, image):
         self._w = w
         self._h = h
         self._image = image
         self._imgWidth = image.width
         self._imgHeight = image.height
-        self._x_speed = 1  # (random.random() - 0.5) * 10
-        self._y_speed = 1  # (random.random() - 0.5) * 10
-        # trunk-ignore(bandit/B311)
-        self._x_pos = random.random() * self._w / 2.0
-        # trunk-ignore(bandit/B311)
-        self._y_pos = random.random() * self._h / 2.0
+        self._x_speed = 1
+        self._y_speed = 1
+        self._x_pos = random.random() * (self._w - self._imgWidth)
+        self._y_pos = random.random() * (self._h - self._imgHeight)
 
     def update_pos(self):
-        if self._x_pos + self._imgWidth > self._w:
-            self._x_speed = -abs(self._x_speed)
-        elif self._x_pos < 0.0:
-            self._x_speed = abs(self._x_speed)
+        x_next = self._x_pos + self._x_speed
+        y_next = self._y_pos + self._y_speed
 
-        if self._y_pos + self._imgHeight > self._h:
-            self._y_speed = -abs(self._y_speed)
-        elif self._y_pos < 0.0:
-            self._y_speed = abs(self._y_speed)
+        if x_next + self._imgWidth > self._w or x_next < 0:
+            self._x_speed = -self._x_speed
+            x_next = self._x_pos + self._x_speed
+        if y_next + self._imgHeight > self._h or y_next < 0:
+            self._y_speed = -self._y_speed
+            y_next = self._y_pos + self._y_speed
 
-        self._x_pos += self._x_speed
-        self._y_pos += self._y_speed
+        self._x_pos = x_next
+        self._y_pos = y_next
 
     def draw(self):
         imgss.paste(self._image, (int(self._x_pos), int(self._y_pos)))
@@ -158,7 +160,7 @@ class SignalHandler:
 
 
 def on_connect(mqttc, userdata, flags, reason_code, properties):
-    print(f"Connected with result code {reason_code}")
+    print(f"MQTT Connected with result code '{reason_code}'")
     mqttc.subscribe(motion_topic)
 
 
@@ -168,35 +170,22 @@ def on_message(
     msg,
 ):
     global show_stats
-    if str(msg.payload.decode("utf-8")) == "1":
-        mqttc.publish(hostname + "/stats_display", "1")
+    payload = msg.payload.decode("utf-8").strip()
+    if payload == "1":
         show_stats = True
-    if str(msg.payload.decode("utf-8")) == "0":
+    elif payload == "0":
         show_stats = False
-        mqttc.publish(hostname + "/stats_display", "0")
+    mqttc.publish(f"{hostname}/stats_display", payload)
 
 
 def set_color(value, warn, crit):
     if warn is not None and crit is not None:
         if value >= crit:
-            return "#bd0940"
-        elif value >= warn:
-            return "#aa9c23"
-        else:
-            return "#75aa23"
-    else:
-        return default_color
-
-
-def first(iterable, default=None):
-    if iterable:
-        for item in iterable:
-            return item
-    return default
-
-
-def intersect(a, b):
-    return list(set(a) & set(b))
+            return "#bd0940"  # Critical
+        if value >= warn:
+            return "#aa9c23"  # Warning
+        return "#75aa23"      # Normal
+    return default_color
 
 
 def get_value(metric_name, metric_value, metric_path):
@@ -249,104 +238,123 @@ def get_iface_speed(iface):
 
 
 def get_data():
-    global hostname
-    global ip, net_speed
+    if influxdb_url:
+        print("Using InfluxDB2 data")
+
+    global hostname, ip, net_speed
     global cpu_freq_max, load_info
     global temp_info, disk_info
     global mem_info, procs_info
 
-    hostname = socket.gethostname()
-    # hostname = ""
+    # Use cached values if already set to avoid unnecessary lookups
+    if not hasattr(get_data, "initialized"):
+        # hostname = socket.gethostname()
+        hostname = "rpitools"
+        get_data.initialized = True
 
     net_if_stats = psutil.net_if_stats()
     net_if_addrs = psutil.net_if_addrs()
     net_speed = 0
     ip = ""
 
-    for iface in ["eth0", "wlan0"]:
-        if iface in net_if_stats and net_if_stats[iface].isup:
+    # Prefer eth0, fallback to wlan0
+    for iface in ("eth0", "wlan0"):
+        stats = net_if_stats.get(iface)
+        addrs = net_if_addrs.get(iface)
+        if stats and stats.isup and addrs:
             net_speed = get_iface_speed(iface)
-            for addr in net_if_addrs[iface]:
-                if addr.family == socket.AF_INET:
-                    ip = addr.address
-                    break
+            ip = next((addr.address for addr in addrs if addr.family == socket.AF_INET), "")
             break
 
-    cpu_freq_max = psutil.cpu_freq().max
+    cpu_freq = psutil.cpu_freq()
+    cpu_freq_max = cpu_freq.max if cpu_freq else 0
 
-    load_info = get_info("load", "load1")
-    temp_info = get_info("check_rpi", "cputemp")
-    disk_info = get_info("disk", "/")
-    mem_info = get_info("mem", "USED")
-    procs_info = get_info("procs", "procs")
+    # Use a helper to reduce repetition
+    def safe_get_info(service, path):
+        try:
+            return get_info(service, path)
+        except Exception:
+            return {}
 
-    if influxdb_url is not None:
-        print("Using InfluxDB data")
+    load_info = safe_get_info("load", "load1")
+    temp_info = safe_get_info("check_rpi", "cputemp")
+    disk_info = safe_get_info("disk", "/")
+    mem_info = safe_get_info("mem", "USED")
+    procs_info = safe_get_info("procs", "procs")
 
     print("New data fetched")
 
-    time.sleep(3600)
-
 
 def update_data():
-    while True:
-        global old_net_value, new_net_value
-        if "old_net_value" not in globals():
+    # Use static variables to avoid global pollution and repeated lookups
+    if not hasattr(update_data, "old_net_value"):
+        update_data.old_net_value = 0
 
-            old_net_value = 0
-        if "new_net_value" not in globals():
-            new_net_value = 0
+    cpu_used = round(psutil.getloadavg()[1], 1)
+    cpu_clock = psutil.cpu_freq().current
+    # Get CPU temperature safely
+    temps = psutil.sensors_temperatures()
+    cpu_temp = None
+    if temps:
+        for entries in temps.values():
+            if entries:
+                cpu_temp = round(entries[0].current, 1)
+                break
+    if cpu_temp is None:
+        cpu_temp = 0.0
 
-        cpu_used = round(psutil.getloadavg()[1], 1)
-        cpu_clock = psutil.cpu_freq().current
-        cpu_temp = round(
-            (list(psutil.sensors_temperatures().values())[0])[0].current, 1
-        )
-        mem = psutil.virtual_memory()
-        mem_used = mem.total - mem.available
-        df = psutil.disk_usage("/").used
-        df_total = psutil.disk_usage("/").total
+    mem = psutil.virtual_memory()
+    mem_used = mem.total - mem.available
+    df_usage = psutil.disk_usage("/")
+    df = df_usage.used
+    df_total = df_usage.total
 
-        new_net_value = (
-            psutil.net_io_counters().bytes_sent
-            + psutil.net_io_counters().bytes_recv
-        )
-        net_data = new_net_value - old_net_value
-        old_net_value = new_net_value
+    net_counters = psutil.net_io_counters()
+    new_net_value = net_counters.bytes_sent + net_counters.bytes_recv
+    net_data = new_net_value - update_data.old_net_value
+    update_data.old_net_value = new_net_value
 
-        procs = len([key for key in psutil.process_iter()])
+    procs = sum(1 for _ in psutil.process_iter())
 
-        global data
-        data = {
-            "cpu_used": cpu_used,
-            "cpu_clock": cpu_clock,
-            "cpu_temp": cpu_temp,
-            "mem_total": mem.total,
-            "mem_used": mem_used,
-            "df": df,
-            "df_total": df_total,
-            "net_data": net_data,
-            "procs": procs,
-        }
+    global data
+    data = {
+        "cpu_used": cpu_used,
+        "cpu_clock": cpu_clock,
+        "cpu_temp": cpu_temp,
+        "mem_total": mem.total,
+        "mem_used": mem_used,
+        "df": df,
+        "df_total": df_total,
+        "net_data": net_data,
+        "procs": procs,
+    }
 
-        time.sleep(2)
 
+class RepeatingTimer(threading.Thread):
+    def __init__(self, interval_seconds, callback, daemon):
+        super().__init__()
+        self.stop_event = threading.Event()
+        self.interval_seconds = interval_seconds
+        self.callback = callback
+        self.daemon = daemon
+
+    def run(self):
+        while not self.stop_event.wait(self.interval_seconds):
+            self.callback()
+
+    def stop(self):
+        self.stop_event.set()
 
 def main(num_iterations=sys.maxsize):
 
-    # x = 0
-
-    thread_get = threading.Thread(target=get_data, daemon=True)
+    get_data()
+    thread_get = RepeatingTimer(3600, get_data, True)
     thread_get.start()
 
-    thread_update = threading.Thread(target=update_data, daemon=True)
+    thread_update = RepeatingTimer(2, update_data, True)
     thread_update.start()
 
-    frame_count = 0
-
-    regulator = framerate_regulator(fps=0)
-
-    time.sleep(10)
+    regulator = framerate_regulator(30)
 
     if mqtt_server is not None:
         mqttc = mqtt.Client(
@@ -357,9 +365,6 @@ def main(num_iterations=sys.maxsize):
         mqttc.on_message = on_message
         mqttc.connect(mqtt_server)
         mqttc.loop_start()
-
-    global t_start
-    t_start = time.time()
 
     ss = [screensaver(width, height, i) for i in [logo]]
 
@@ -467,20 +472,13 @@ def main(num_iterations=sys.maxsize):
             y += font.getbbox(Procs)[3]
 
             lcd.display(img)
-            time.sleep(0.5)
         while (
             not show_stats
             and num_iterations > 0
             and signal_handler.can_run()
         ):
-            draw.rectangle(
-                (0, 0, width, height),
-                outline=outline_color,
-                fill=fill_color
-            )
             with regulator:
                 num_iterations -= 1
-                frame_count += 1
                 drawss.rectangle(
                     (0, 0, width, height),
                     outline=outline_color,
