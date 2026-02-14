@@ -41,7 +41,7 @@ default_color = "#FFFFFF"
 alternate_color = "#AA9C23"
 outline_color = "#000000"
 fill_color = "#000000"
-logo = Image.open("raspberrypi.png").convert("RGB") 
+logo = Image.open("raspberrypi.png").convert("RGB")
 img = Image.new("RGB", (width, height), color=(0, 0, 0))
 draw = ImageDraw.Draw(img)
 imgss = Image.new("RGB", (width, height), color=(0, 0, 0))
@@ -99,6 +99,7 @@ if influxdb_url and influxdb_token and influxdb_org and influxdb_bucket:
     except Exception as e:
         print(f"InfluxDB2 connection error: {e}")
 
+
 class screensaver:
     __slots__ = (
         "_w", "_h", "_image", "_imgWidth", "_imgHeight",
@@ -113,7 +114,9 @@ class screensaver:
         self._imgHeight = image.height
         self._x_speed = 1
         self._y_speed = 1
+        # trunk-ignore(bandit/B311)
         self._x_pos = random.random() * (self._w - self._imgWidth)
+        # trunk-ignore(bandit/B311)
         self._y_pos = random.random() * (self._h - self._imgHeight)
 
     def update_pos(self):
@@ -220,8 +223,11 @@ def get_info(service, path):
 
 def get_iface_speed(iface):
     try:
+        # trunk-ignore(bandit/B404)
         import subprocess
 
+        # trunk-ignore(bandit/B603)
+        # trunk-ignore(bandit/B607)
         result = subprocess.run(
             ["ethtool", iface],
             capture_output=True,
@@ -263,7 +269,14 @@ def get_data():
         addrs = net_if_addrs.get(iface)
         if stats and stats.isup and addrs:
             net_speed = get_iface_speed(iface)
-            ip = next((addr.address for addr in addrs if addr.family == socket.AF_INET), "")
+            ip = next(
+                (
+                    addr.address
+                    for addr in addrs
+                    if addr.family == socket.AF_INET
+                ),
+                ""
+            )
             break
 
     cpu_freq = psutil.cpu_freq()
@@ -344,6 +357,7 @@ class RepeatingTimer(threading.Thread):
 
     def stop(self):
         self.stop_event.set()
+
 
 def main(num_iterations=sys.maxsize):
 
