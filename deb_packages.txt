@@ -1,9 +1,5 @@
-hurry.filesize
-paho
-
-
 python3-hurry.filesize
 python3-paho-mqtt
 python3-luma.lcd
 python3-psutil
-luma lcd
+python3-influxdb-client

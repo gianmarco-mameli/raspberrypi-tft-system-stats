@@ -6,33 +6,45 @@ warnings.filterwarnings("ignore")
 import os
 import signal
 import socket
-# import subprocess
 import sys
 import threading
 import time
 import paho.mqtt.client as mqtt
 import psutil
-import requests
+import random
+from influxdb_client import InfluxDBClient
 from hurry.filesize import size
 import luma.core.render
 from luma.core.interface.serial import spi
 from luma.lcd.device import st7789
 from luma.core.sprite_system import framerate_regulator
 from PIL import Image, ImageDraw, ImageFont
-import random
 
-graphite_url = os.getenv("GRAPHITE_URL")
-metric_group = os.getenv("METRIC_GROUP")
+# environment variables
 mqtt_server = os.getenv("MQTT_SERVER")
 motion_topic = os.getenv("MOTION_TOPIC")
 lcd_rotation = int(os.getenv("LCD_ROTATION", 1))
+influxdb_url = os.getenv("INFLUXDB_URL")
+influxdb_org = os.getenv("INFLUXDB_ORG")
+influxdb_bucket = os.getenv("INFLUXDB_BUCKET")
+influxdb_token = os.getenv("INFLUXDB_TOKEN")
 
-serial = spi(spi_mode=3, port=0, device=0, gpio_DC=17, gpio_RST=22, bus_speed_hz=8000000)
+# import RPi.GPIO as GPIO
+
+# # Set up GPIO22 as output
+# GPIO.setmode(GPIO.BCM)
+# GPIO.setup(17, GPIO.OUT)
+# GPIO.setup(22, GPIO.OUT)
+
+serial = spi(spi_mode=3, port=0, device=0, gpio_LIGHT=27, gpio_DC=17, gpio_RST=22, bus_speed_hz=8000000)
 lcd = st7789(serial, rotate=lcd_rotation)
 width = lcd.width
 height = lcd.height
 
 default_color = "#FFFFFF"
+alternate_color = "#AA9C23"
+outline_color = "#000000"
+fill_color = "#000000"
 logo = Image.open("raspberrypi.png")
 img = Image.new("RGB", (width, height), color=(0, 0, 0))
 draw = ImageDraw.Draw(img)
@@ -40,9 +52,8 @@ imgss = Image.new("RGB", (width, height), color=(0, 0, 0))
 drawss = ImageDraw.Draw(imgss)
 
 # Boot splashscreen
-draw.rectangle((0, 0, width, height), outline=0, fill=0)
-font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
-font_big = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+font = ImageFont.load_default(21)
+font_big = ImageFont.load_default(29)
 boot_text_1 = "Raspberry Pi Stats"
 boot_text_2 = "Starting..."
 print(boot_text_1)
@@ -55,17 +66,27 @@ w = int(logo.width)
 img.paste(logo, (int((width-w)/2),90))
 lcd.display(img)
 
-padding = -2
+padding = -3
 top = padding
 bottom = height - padding
 global x
-x = 0
+x = 3
 data = {}
 show_stats = True
 
+influxdbc = None
+if influxdb_url and influxdb_token and influxdb_org and influxdb_bucket:
+    influxdbc = InfluxDBClient(url=influxdb_url, token=influxdb_token, org=influxdb_org)
+    query_api = influxdbc.query_api()
+    try:
+        health = influxdbc.health()
+        print(f"InfluxDB2 connection status: {health.status} - {health.message}")
+    except Exception as e:
+        print(f"InfluxDB2 connection error: {e}")
 
 class screensaver(object):
     def __init__(self, w, h, image):
+        lcd.clear()
         self._w = w
         self._h = h
         self._image = image
@@ -92,8 +113,6 @@ class screensaver(object):
 
     def draw(self):
         imgss.paste(self._image, (int(self._x_pos),int(self._y_pos)))
-        # drawss.bitmap((int(self._x_pos),int(self._y_pos)), logo, )
-        
 
 class SignalHandler:
     shutdown_requested = False
@@ -102,39 +121,49 @@ class SignalHandler:
         signal.signal(signal.SIGINT, self.request_shutdown)
         signal.signal(signal.SIGTERM, self.request_shutdown)
 
-    def request_shutdown(self, *args):
-        print('Request to shutdown received, stopping')
-        lcd.cleanup()
-        self.shutdown_requested = True
+    def request_shutdown(self, signum, frame):
+        if not self.shutdown_requested:
+            print('Request to shutdown received, stopping')
+            self.shutdown_requested = True
+            try:
+                lcd.clear()
+            except Exception as e:
+                print(f"LCD clear error: {e}")
+            try:
+                lcd.cleanup()
+            except Exception as e:
+                print(f"LCD cleanup error: {e}")
+            sys.exit(0)
 
     def can_run(self):
         return not self.shutdown_requested
 
-def on_connect(client, userdata, flags, rc):
-    print("MQTT Connected with result code "+str(rc))
-    client.subscribe(motion_topic)
+def on_connect(mqttc, userdata, flags, rc):
+    print(f"MQTT Connected with result code {rc}")
+    mqttc.subscribe(motion_topic)
 
-def on_message(client, userdata, msg,):
+def on_message(mqttc, userdata, msg,):
     global show_stats
-    if "motion" in msg.topic:
-        if str(msg.payload.decode("utf-8")) == "1":
-            client.publish(hostname + "/stats_display", "1")
-            show_stats = True
-        if str(msg.payload.decode("utf-8")) == "0":
-            show_stats = False
-            client.publish(hostname + "/stats_display", "1")
+    # if "motion" in msg.topic:
+    if str(msg.payload.decode("utf-8")) == "1":
+        mqttc.publish(hostname + "/stats_display", "1")
+        show_stats = True
+    if str(msg.payload.decode("utf-8")) == "0":
+        show_stats = False
+        mqttc.publish(hostname + "/stats_display", "0")
+    # print(f"Show stats: {show_stats}")
 
 def set_color(value, warn, crit):
     if warn != None and crit != None:
         if value >= crit:
-            return "#FF0000"
+            return "#bd0940"
         elif value >= warn:
-            return "#FFFF00"
+            return "#aa9c23"
         else:
-            return "#00FF00"
+            return "#75aa23"
     else:
         return default_color
- 
+
 def first(iterable, default=None):
     if iterable:
         for item in iterable:
@@ -145,71 +174,79 @@ def intersect(a, b):
     return list(set(a) & set(b))
 
 def get_value(metric_name, metric_value, metric_path):
-    request_url = (
-        graphite_url
-        + "render/?"
-        + "target=summarize("
-        + metric_group
-        + "."
-        + hostname
-        + ".services."
-        + metric_name
-        + "."
-        + metric_path
-        + "."
-        + metric_value
-        + ",'1hour','last')&from=-1h&format=json"
-    )
-    r = requests.get(request_url, verify=False)
-    try:
-        result = r.json()[0]["datapoints"][-1][0]
-        return result
-    except:
-        return ""
+    if influxdbc:
+        flux_query = f'''from(bucket: "{influxdb_bucket}")
+            |> range(start: -1h)
+            |> filter(fn: (r) => r["_measurement"] == "{metric_name}")
+            |> filter(fn: (r) => r["_field"] == "{metric_value}")
+            |> filter(fn: (r) => r["hostname"] =~ /{hostname}/)
+            |> filter(fn: (r) => r["metric"] == "{metric_path}")
+            |> yield(name: "last")'''
+        try:
+            tables = query_api.query(flux_query)
+            for table in tables:
+                for record in table.records:
+                    return record.get_value()
+        except Exception as e:
+            print(f"InfluxDB query error: {e}")
+            return None
+    return None
 
 def get_info(service, path):
     service_name = service.split(".")[0]
-    if graphite_url != None:
-        info = {
-            service_name + "_crit": get_value(service, "crit", path),
-            service_name + "_warn": get_value(service, "warn", path),
-            service_name + "_max": get_value(service, "max", path),
-        }
-    else:
-        info = {
-            service_name + "_crit": None,
-            service_name + "_warn": None,
-            service_name + "_max": None,
-        }   
+    info = {
+        service_name + "_crit": get_value(service, "crit", path),
+        service_name + "_warn": get_value(service, "warn", path),
+        service_name + "_max": get_value(service, "max", path),
+    }
     return info
+
+def get_iface_speed(iface):
+    try:
+        import subprocess
+        result = subprocess.run(["ethtool", iface], capture_output=True, text=True)
+        for line in result.stdout.splitlines():
+            if "Speed:" in line:
+                speed_str = line.split("Speed:")[1].strip()
+                if speed_str.endswith("Mb/s"):
+                    return int(speed_str.replace("Mb/s", "").strip())
+        return 0
+    except Exception:
+        return 0
 
 def get_data():
     global hostname, ip, net_speed, cpu_freq_max, load_info, temp_info, disk_info, mem_info, procs_info
 
     # hostname = socket.gethostname()
-    hostname = "rpi-node1"
+    hostname = "rpitools"
+ 
+    net_if_stats = psutil.net_if_stats()
+    net_if_addrs = psutil.net_if_addrs()
+    active_iface = None
+    net_speed = 0
+    ip = ""
 
-    try:
-        net_speed = psutil.net_if_stats()["br0"].speed
-        ip = psutil.net_if_addrs()["br0"][0].address
-    except:
-        try:
-            net_speed = psutil.net_if_stats()["eth0"].speed
-            ip = psutil.net_if_addrs()["eth0"][0].address
-        except:
-            net_speed = psutil.net_if_stats()["wlan0"].speed
-            ip = psutil.net_if_addrs()["wlan0"][0].address
+    for iface in ["eth0", "wlan0"]:
+        if iface in net_if_stats and net_if_stats[iface].isup:
+            active_iface = iface
+            net_speed = get_iface_speed(iface)
+            # Get IPv4 address
+            for addr in net_if_addrs[iface]:
+                if addr.family == socket.AF_INET:
+                    ip = addr.address
+                    break
+            break
 
     cpu_freq_max = cpu_clock = psutil.cpu_freq().max
 
-    load_info = get_info("load.load", "perfdata.load5")
-    temp_info = get_info("temperature.check_rpi_temp_py", "perfdata.rpi_temp")
-    disk_info = get_info("disk.disk", "perfdata._")
-    mem_info = get_info("mem.mem", "perfdata.USED")
-    procs_info = get_info("procs.procs", "perfdata.procs")
+    load_info = get_info("load", "load1")
+    temp_info = get_info("check_rpi", "cputemp")
+    disk_info = get_info("disk", "/")
+    mem_info = get_info("mem", "USED")
+    procs_info = get_info("procs", "procs")
 
-    if graphite_url != None:
-        print("Using Graphite data")
+    if influxdb_url != None:
+        print("Using InfluxDB data")
 
     print("New data fetched")
 
@@ -263,58 +300,52 @@ def update_data():
 
 def main(num_iterations=sys.maxsize):
 
-    # signal.signal(signal.SIGTERM, signal_term_handler)
-    signal_handler = SignalHandler()
-    x = 0
+    # x = 0
 
     thread_get = threading.Thread(target=get_data, daemon=True)
     thread_get.start()
 
-    thread_update = threading.Thread(target=update_data)
+    thread_update = threading.Thread(target=update_data, daemon=True)
     thread_update.start()
 
     frame_count = 0
-    # fps = ""
-    # canvas = luma.core.render.canvas(lcd, dither=True)
+
     regulator = framerate_regulator(fps=0)
 
     time.sleep(10)
 
     if mqtt_server != None:
-        client = mqtt.Client(socket.gethostname() + "_stats_display")
-        client.on_connect = on_connect
-        client.on_message = on_message
-        client.connect(mqtt_server)
-        client.loop_start()
-
+        mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, socket.gethostname() + "_stats_display")
+        mqttc.on_connect = on_connect
+        mqttc.on_message = on_message
+        mqttc.connect(mqtt_server)
+        mqttc.loop_start()
+        
     global t_start
     t_start = time.time()
 
-    # ss = screensaver(width, height)
     ss = [screensaver(width, height, i) for i in [logo]]
 
     while signal_handler.can_run():
-        while show_stats:
-
-            # img = Image.new("RGB", (width, height), color=(0, 0, 0))
-            # draw = ImageDraw.Draw(img)
-            draw.rectangle((0, 0, width, height), outline=0, fill=0)
+        while show_stats and signal_handler.can_run():
+            draw.rectangle((0, 0, width, height), outline=outline_color, fill=fill_color)
 
             y = top
 
             Hostname = str(hostname)
             state_color = default_color
-            draw.text((x, y), Hostname, font=font_big, fill=state_color)
+            draw.text((x, y), Hostname.upper(), font=font_big, fill=alternate_color)
             y += font.getbbox(Hostname)[3]
+            y += 6
 
             Ip = str(ip)
             state_color = default_color
-            draw.text((x, y), Ip, font=font_big, fill=state_color)
+            draw.text((x, y), Ip, font=font, fill=state_color)
             y += font.getbbox(Ip)[3]
 
-            y += 8
-            draw.line([(x, y), (width, y)], default_color, 2)
-            y += 4
+            y += 11
+            draw.line([(0, y), (width, y)], default_color, 2)
+            y += 7
 
             Load = "Cpu Load: " + str(data["cpu_used"])
             state_color = set_color(
@@ -331,8 +362,8 @@ def main(num_iterations=sys.maxsize):
             Temp = "Temp: " + str(data["cpu_temp"]) + "°C"
             state_color = set_color(
                 data["cpu_temp"],
-                temp_info["temperature_warn"],
-                temp_info["temperature_crit"],
+                temp_info["check_rpi_warn"],
+                temp_info["check_rpi_crit"],
             )
             draw.text((x, y), Temp, font=font, fill=state_color)
             y += font.getbbox(Temp)[3]
@@ -363,9 +394,9 @@ def main(num_iterations=sys.maxsize):
             draw.text((x, y), Procs, font=font, fill=state_color)
             y += font.getbbox(Procs)[3]
 
-            y += 8
-            draw.line([(x, y), (width, y)], default_color, 2)
-            y += 4
+            # y += 8
+            # draw.line([(x, y), (width-padding, y)], default_color, 2)
+            # y += 4
 
             # cmd = "dmesg --level=err,warn | tail -1"
             # Dmesg = subprocess.check_output(cmd, shell=True).decode("utf-8")
@@ -377,25 +408,23 @@ def main(num_iterations=sys.maxsize):
             
             lcd.display(img)
             time.sleep(0.5)
+        while not show_stats and num_iterations > 0 and signal_handler.can_run():
+            with regulator:
+                num_iterations -= 1
+                frame_count += 1
+                drawss.rectangle((0, 0, width, height), outline=outline_color, fill=fill_color)
+                for s in ss:
+                    s.update_pos()
+                    s.draw()
+                lcd.display(imgss)
+    # Ensure exit if shutdown requested
+    if signal_handler.shutdown_requested:
+        sys.exit(0)
 
-        while not show_stats:
-            while num_iterations > 0:
-                with regulator:
-                    num_iterations -= 1
-
-                    frame_count += 1
-                    # with canvas as c:
-                    drawss.rectangle((0, 0, width, height), outline=0, fill=0)
-                    for s in ss:
-                        s.update_pos()
-                        s.draw()
-                    lcd.display(imgss)
-                    # if frame_count % 20 == 0:
-                    #     fps = "FPS: {0:0.3f}".format(regulator.effective_FPS())
 
 if __name__ == "__main__":
+    signal_handler = SignalHandler()
     try:
         main()
     except KeyboardInterrupt:
-        lcd.cleanup()
-        pass
+        signal_handler.request_shutdown(signal.SIGINT, None)
