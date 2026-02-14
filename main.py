@@ -472,7 +472,7 @@ def main(num_iterations=sys.maxsize):
                 + "M"
             )
             state_color = set_color(
-                data["net_data"] / 1000, (net_speed * 0.80), net_speed
+                data["net_data"], (net_speed * 0.70), net_speed
             )
             draw.text((x, y), Net, font=font, fill=state_color)
             y += font.getbbox(Net)[3]
