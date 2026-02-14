@@ -367,6 +367,7 @@ def main(num_iterations=sys.maxsize):
     thread_get = RepeatingTimer(3600, get_data, True)
     thread_get.start()
 
+    update_data()
     thread_update = RepeatingTimer(2, update_data, True)
     thread_update.start()
 
