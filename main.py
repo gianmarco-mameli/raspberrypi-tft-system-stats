@@ -424,7 +424,12 @@ def main(num_iterations=sys.maxsize):
             draw.text((x, y), Load, font=font, fill=state_color)
             y += font.getbbox(Load)[3]
 
-            Clock = "Cpu Clock: " + str(data["cpu_clock"])
+            Clock = (
+                "Clock: "
+                + str(int(data["cpu_clock"]))
+                + "/"
+                + str(int(cpu_freq_max))
+            )
             state_color = set_color(
                 data["cpu_clock"], (cpu_freq_max * 0.80), cpu_freq_max
             )
