@@ -268,7 +268,7 @@ def get_data():
         stats = net_if_stats.get(iface)
         addrs = net_if_addrs.get(iface)
         if stats and stats.isup and addrs:
-            net_speed = get_iface_speed(iface)
+            net_speed = get_iface_speed(iface)/1000/1000
             ip = next(
                 (
                     addr.address
@@ -468,8 +468,7 @@ def main(num_iterations=sys.maxsize):
                 "Net: "
                 + str(size(data["net_data"]))
                 + "/"
-                + str(net_speed)
-                + "M"
+                + str(size(net_speed))
             )
             state_color = set_color(
                 data["net_data"], (net_speed * 0.70), net_speed
