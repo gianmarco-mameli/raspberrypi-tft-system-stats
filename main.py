@@ -105,10 +105,8 @@ if influxdb_url and influxdb_token and influxdb_org and influxdb_bucket:
     except Exception as e:
         print(f"InfluxDB2 connection error: {e}")
 
-
 class screensaver(object):
     def __init__(self, w, h, image):
-        lcd.clear()
         self._w = w
         self._h = h
         self._image = image
@@ -377,6 +375,8 @@ def main(num_iterations=sys.maxsize):
 
     ss = [screensaver(width, height, i) for i in [logo]]
 
+    lcd.clear()
+
     while signal_handler.can_run():
         while show_stats and signal_handler.can_run():
             draw.rectangle(
@@ -485,6 +485,11 @@ def main(num_iterations=sys.maxsize):
             and num_iterations > 0
             and signal_handler.can_run()
         ):
+            draw.rectangle(
+                (0, 0, width, height),
+                outline=outline_color,
+                fill=fill_color
+            )
             with regulator:
                 num_iterations -= 1
                 frame_count += 1
