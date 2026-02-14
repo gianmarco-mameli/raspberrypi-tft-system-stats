@@ -181,6 +181,7 @@ def on_message(
     mqttc.publish(f"{hostname}/stats_display", payload)
 
 
+
 def set_color(value, warn, crit):
     if warn is not None and crit is not None:
         if value >= crit:
@@ -189,6 +190,7 @@ def set_color(value, warn, crit):
             return "#aa9c23"  # Warning
         return "#75aa23"      # Normal
     return default_color
+
 
 
 def get_value(metric_name, metric_value, metric_path):
