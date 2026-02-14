@@ -38,7 +38,7 @@ width = lcd.width
 height = lcd.height
 
 default_color = "#FFFFFF"
-alternate_color = "#AA9C23"
+alternate_color = "#FFFF00"
 outline_color = "#000000"
 fill_color = "#000000"
 logo = Image.open("raspberrypi.png").convert("RGB")
@@ -181,16 +181,14 @@ def on_message(
     mqttc.publish(f"{hostname}/stats_display", payload)
 
 
-
 def set_color(value, warn, crit):
     if warn is not None and crit is not None:
         if value >= crit:
-            return "#bd0940"  # Critical
+            return "#FF0000"  # Critical
         if value >= warn:
-            return "#aa9c23"  # Warning
-        return "#75aa23"      # Normal
+            return "#FFFF00"  # Warning
+        return "#00FF00"      # Normal
     return default_color
-
 
 
 def get_value(metric_name, metric_value, metric_path):
