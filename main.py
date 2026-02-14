@@ -7,9 +7,6 @@ import socket
 import sys
 import threading
 import time
-import warnings
-
-# import luma.core.render
 import paho.mqtt.client as mqtt
 import psutil
 from hurry.filesize import size
@@ -18,8 +15,6 @@ from luma.core.interface.serial import spi
 from luma.core.sprite_system import framerate_regulator
 from luma.lcd.device import st7789
 from PIL import Image, ImageDraw, ImageFont
-
-warnings.filterwarnings("ignore")
 
 # environment variables
 mqtt_server = os.getenv("MQTT_SERVER")
@@ -53,7 +48,7 @@ draw = ImageDraw.Draw(img)
 imgss = Image.new("RGB", (width, height), color=(0, 0, 0))
 drawss = ImageDraw.Draw(imgss)
 
-# Boot splashscreen
+# boot splashscreen
 font = ImageFont.load_default(21)
 font_big = ImageFont.load_default(29)
 boot_text_1 = "Raspberry Pi Stats"
@@ -162,8 +157,8 @@ class SignalHandler:
         return not self.shutdown_requested
 
 
-def on_connect(mqttc, userdata, flags, rc):
-    print(f"MQTT Connected with result code {rc}")
+def on_connect(mqttc, userdata, flags, reason_code, properties):
+    print(f"Connected with result code {reason_code}")
     mqttc.subscribe(motion_topic)
 
 
@@ -173,14 +168,12 @@ def on_message(
     msg,
 ):
     global show_stats
-    # if "motion" in msg.topic:
     if str(msg.payload.decode("utf-8")) == "1":
         mqttc.publish(hostname + "/stats_display", "1")
         show_stats = True
     if str(msg.payload.decode("utf-8")) == "0":
         show_stats = False
         mqttc.publish(hostname + "/stats_display", "0")
-    # print(f"Show stats: {show_stats}")
 
 
 def set_color(value, warn, crit):
@@ -262,8 +255,8 @@ def get_data():
     global temp_info, disk_info
     global mem_info, procs_info
 
-    # hostname = socket.gethostname()
-    hostname = "rpitools"
+    hostname = socket.gethostname()
+    # hostname = ""
 
     net_if_stats = psutil.net_if_stats()
     net_if_addrs = psutil.net_if_addrs()
@@ -273,7 +266,6 @@ def get_data():
     for iface in ["eth0", "wlan0"]:
         if iface in net_if_stats and net_if_stats[iface].isup:
             net_speed = get_iface_speed(iface)
-            # Get IPv4 address
             for addr in net_if_addrs[iface]:
                 if addr.family == socket.AF_INET:
                     ip = addr.address
@@ -314,10 +306,6 @@ def update_data():
         mem_used = mem.total - mem.available
         df = psutil.disk_usage("/").used
         df_total = psutil.disk_usage("/").total
-
-        # network_ifs = psutil.net_if_stats().keys()
-        # wlan0 = first(intersect(network_ifs, ["wlan0", "wl0"]), "wlan0")
-        # eth0 = first(intersect(network_ifs, ["eth0", "en0"]), "eth0")
 
         new_net_value = (
             psutil.net_io_counters().bytes_sent
@@ -362,7 +350,7 @@ def main(num_iterations=sys.maxsize):
 
     if mqtt_server is not None:
         mqttc = mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION1,
+            mqtt.CallbackAPIVersion.VERSION2,
             socket.gethostname() + "_stats_display"
         )
         mqttc.on_connect = on_connect
@@ -502,7 +490,6 @@ def main(num_iterations=sys.maxsize):
                     s.update_pos()
                     s.draw()
                 lcd.display(imgss)
-    # Ensure exit if shutdown requested
     if signal_handler.shutdown_requested:
         sys.exit(0)
 
