@@ -256,8 +256,8 @@ def get_data():
 
     # Use cached values if already set to avoid unnecessary lookups
     if not hasattr(get_data, "initialized"):
-        # hostname = socket.gethostname()
-        hostname = "rpitools"
+        hostname = socket.gethostname()
+        # hostname = ""
         get_data.initialized = True
 
     net_if_stats = psutil.net_if_stats()
