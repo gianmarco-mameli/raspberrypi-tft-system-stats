@@ -15,6 +15,8 @@ from luma.core.sprite_system import framerate_regulator
 from luma.lcd.device import st7789
 from PIL import Image, ImageDraw, ImageFont
 
+script_path = os.path.dirname(os.path.abspath(__file__))
+
 # environment variables
 mqtt_server = os.getenv("MQTT_SERVER")
 motion_topic = os.getenv("MOTION_TOPIC")
@@ -41,7 +43,7 @@ default_color = "#FFFFFF"
 alternate_color = "#FFFF00"
 outline_color = "#000000"
 fill_color = "#000000"
-logo = Image.open("raspberrypi.png").convert("RGB")
+logo = Image.open(os.path.join(script_path, "raspberrypi.png")).convert("RGB")
 img = Image.new("RGB", (width, height), color=(0, 0, 0))
 draw = ImageDraw.Draw(img)
 imgss = Image.new("RGB", (width, height), color=(0, 0, 0))
