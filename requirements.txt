@@ -1,0 +1,6 @@
+paho-mqtt
+psutil
+hurry.filesize
+influxdb-client
+luma.lcd
+Pillow
